@@ -10,13 +10,15 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import xlsxwriter
+from PIL import Image as PILImage
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
 )
 
 # ============================================================
@@ -32,7 +34,7 @@ st.set_page_config(
 TZ_ECUADOR = ZoneInfo("America/Guayaquil")
 HOY = datetime.now(TZ_ECUADOR).date()
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 TIPOS_NOVEDAD = [
     "Aviso de entrada",
@@ -101,6 +103,16 @@ COLUMNAS = [
     "ALERTA",
     "Archivo evidencia",
 ]
+
+IESS_FUENTE_TITULO = "El empleador tiene fechas y plazos específicos para registrar novedades - IESS"
+IESS_FUENTE_URL = "https://www.iess.gob.ec/es/web/mobile/home/-/asset_publisher/0hbG/content/el-empleador-tiene-fechas-y-plazos-especificos-para-registrar-novedades/10174"
+IESS_BASE_CORTA = (
+    "El IESS informa que el Sistema de Historia Laboral está disponible desde el tercer día "
+    "hasta el penúltimo día de cada mes para registrar avisos de entrada, salida, enfermedad "
+    "y modificación de sueldos. El aviso de entrada tiene un plazo máximo de 15 días desde "
+    "el inicio del trabajo; el aviso de salida, enfermedad y modificación de sueldo tiene "
+    "un plazo de 3 días desde que ocurrió el respectivo evento."
+)
 
 IESS_INCIDENCIAS = {
     "Sistema IESS no habilitado",
@@ -509,49 +521,108 @@ def pdf_bytes(df, config, titulo="Reporte de Novedades e Incidencias IESS"):
     return output.getvalue()
 
 def ficha_pdf_bytes(reg, config):
-    df = pd.DataFrame([{**reg,
-                        "DÍAS TRANSCURRIDOS": dias_transcurridos(reg.get("Fecha efectiva"), reg.get("Fecha registro IESS")),
-                        "ALERTA": calcular_alerta(reg)}])
-    # PDF detallado individual
     output = io.BytesIO()
-    doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm, topMargin=15*mm, bottomMargin=15*mm)
+    doc = SimpleDocTemplate(
+        output, pagesize=A4,
+        rightMargin=16*mm, leftMargin=16*mm,
+        topMargin=12*mm, bottomMargin=12*mm
+    )
     styles = getSampleStyleSheet()
-    title = ParagraphStyle("title2", parent=styles["Title"], fontSize=14, textColor=colors.HexColor("#1F4E78"))
+    title = ParagraphStyle(
+        "title2", parent=styles["Title"], fontSize=14, leading=16,
+        textColor=colors.HexColor("#1F4E78")
+    )
+    body = ParagraphStyle(
+        "body2", parent=styles["BodyText"], fontSize=8.2, leading=10.2
+    )
+    legal = ParagraphStyle(
+        "legal", parent=styles["BodyText"], fontSize=7.7, leading=9.5,
+        backColor=colors.HexColor("#F4F8FB"),
+        borderColor=colors.HexColor("#B8CCE4"),
+        borderWidth=0.6, borderPadding=6
+    )
+
     story = [
         Paragraph("<b>CENASE CÍA. LTDA.</b>", title),
         Paragraph("Ficha individual de novedad / incidencia IESS", title),
-        Spacer(1, 5*mm),
+        Spacer(1, 4*mm),
     ]
+
     campos = [c for c in COLUMNAS if c != "Archivo evidencia"]
     data = []
     for c in campos:
         v = reg.get(c, "")
         if c == "DÍAS TRANSCURRIDOS":
-            v = dias_transcurridos(reg.get("Fecha efectiva"), reg.get("Fecha registro IESS"))
+            v = dias_transcurridos(
+                reg.get("Fecha efectiva"),
+                reg.get("Fecha registro IESS")
+            )
         elif c == "ALERTA":
             v = calcular_alerta(reg)
+            v = (v.replace("🟢", "VERDE -")
+                   .replace("🟡", "AMARILLO -")
+                   .replace("🔴", "ROJO -")
+                   .replace("🔵", "AZUL -")
+                   .replace("⚪", ""))
         elif c.startswith("Fecha"):
             v = fmt_date(v)
-        data.append([Paragraph(f"<b>{c}</b>", styles["BodyText"]), Paragraph(clean_text(v), styles["BodyText"])])
-    t = Table(data, colWidths=[60*mm, 110*mm])
+
+        data.append([
+            Paragraph(f"<b>{c}</b>", body),
+            Paragraph(clean_text(v), body)
+        ])
+
+    t = Table(data, colWidths=[58*mm, 112*mm])
     t.setStyle(TableStyle([
         ("GRID",(0,0),(-1,-1),0.4,colors.HexColor("#A6A6A6")),
         ("BACKGROUND",(0,0),(0,-1),colors.HexColor("#EAF2F8")),
         ("VALIGN",(0,0),(-1,-1),"TOP"),
         ("LEFTPADDING",(0,0),(-1,-1),4),
         ("RIGHTPADDING",(0,0),(-1,-1),4),
-        ("TOPPADDING",(0,0),(-1,-1),4),
-        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("TOPPADDING",(0,0),(-1,-1),3),
+        ("BOTTOMPADDING",(0,0),(-1,-1),3),
     ]))
     story.append(t)
-    story.append(Spacer(1, 6*mm))
+    story.append(Spacer(1, 4*mm))
+
     story.append(Paragraph(
-        "<b>Control interno:</b> Mantener adjunto el soporte laboral, evidencia de indisponibilidad del sistema cuando corresponda, "
-        "comprobante de registro y número de trámite IESS si existe.",
-        styles["BodyText"]
+        "<b>BASE / RESPALDO IESS</b><br/>"
+        + IESS_BASE_CORTA
+        + "<br/><b>Fuente:</b> " + IESS_FUENTE_TITULO
+        + "<br/><b>Portal:</b> " + IESS_FUENTE_URL,
+        legal
     ))
+    story.append(Spacer(1, 3*mm))
+
+    story.append(Paragraph(
+        "<b>Control interno CENASE:</b> La fecha efectiva debe corresponder "
+        "a la realidad laboral. Cuando exista cierre o indisponibilidad del "
+        "sistema, conservar soporte laboral, evidencia de la incidencia, "
+        "comprobante posterior de registro y número de trámite IESS cuando corresponda.",
+        body
+    ))
+
+    evidencia_item = st.session_state.evidencias.get(make_id(reg))
+    story.append(Spacer(1, 3*mm))
+    if evidencia_item:
+        story.append(Paragraph(
+            "<b>ANEXO:</b> El soporte cargado en la app se incorpora a continuación: "
+            + clean_text(evidencia_item.get("name")) + ".",
+            body
+        ))
+    else:
+        story.append(Paragraph(
+            "<b>ANEXO:</b> No existe archivo de soporte cargado en la app para este registro.",
+            body
+        ))
+
     doc.build(story)
-    return output.getvalue()
+    ficha = output.getvalue()
+
+    if evidencia_item:
+        ficha = anexar_evidencia_a_pdf(ficha, evidencia_item)
+
+    return ficha
 
 # ============================================================
 # RESPALDO ZIP
@@ -1019,6 +1090,8 @@ with tabs[3]:
 **9. Contabilidad.** La bitácora sirve como soporte para conciliar Rol vs IESS y explicar diferencias de días o valores. La responsabilidad de documentar la novedad laboral debe permanecer en RR. HH./Operaciones según corresponda.
 
 **10. Respaldo.** Streamlit Community Cloud no debe usarse como único repositorio permanente. La app permite bajar un ZIP con registros + evidencias y restaurarlo después.
+
+**11. Ficha individual.** El PDF individual incorpora una base corta de la publicación oficial del IESS y anexa al final el soporte PDF/JPG/PNG cargado para el registro.
 """)
     st.warning(
         "Los plazos se utilizan como reglas de control conforme a la información oficial revisada. "

@@ -45,3 +45,10 @@ La información se incorpora desde la propia app o importando el Excel interno.
 
 ## Regla operativa central
 La fecha efectiva del ingreso/salida debe conservar la realidad laboral. No se modifica para hacerla coincidir con la fecha de disponibilidad del portal del IESS.
+
+
+## Versión 1.1
+- El PDF individual incluye una sección **BASE / RESPALDO IESS**.
+- Resume la publicación oficial del IESS sobre disponibilidad del Sistema de Historia Laboral y plazos de 15/3 días.
+- El soporte PDF/JPG/PNG cargado para el trabajador se anexa al final del PDF individual.
+- El texto de alertas del PDF usa palabras (VERDE/AMARILLO/ROJO) para evitar cuadros negros.
