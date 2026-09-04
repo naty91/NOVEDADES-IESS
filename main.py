@@ -34,7 +34,7 @@ st.set_page_config(
 TZ_ECUADOR = ZoneInfo("America/Guayaquil")
 HOY = datetime.now(TZ_ECUADOR).date()
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 
 TIPOS_NOVEDAD = [
     "Aviso de entrada",
@@ -519,6 +519,74 @@ def pdf_bytes(df, config, titulo="Reporte de Novedades e Incidencias IESS"):
 
     doc.build(story)
     return output.getvalue()
+
+
+def anexar_evidencia_a_pdf(pdf_ficha, evidencia_item):
+    """Anexa al final del PDF individual el soporte cargado (PDF/JPG/JPEG/PNG)."""
+    if not evidencia_item or not evidencia_item.get("data"):
+        return pdf_ficha
+
+    nombre = clean_text(evidencia_item.get("name")).lower()
+    evidencia_pdf = None
+
+    try:
+        if nombre.endswith(".pdf"):
+            evidencia_pdf = evidencia_item["data"]
+
+        elif nombre.endswith((".jpg", ".jpeg", ".png")):
+            img = PILImage.open(io.BytesIO(evidencia_item["data"]))
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+
+            img_pdf = io.BytesIO()
+            doc_img = SimpleDocTemplate(
+                img_pdf,
+                pagesize=A4,
+                rightMargin=12*mm,
+                leftMargin=12*mm,
+                topMargin=12*mm,
+                bottomMargin=12*mm
+            )
+
+            max_w = A4[0] - 24*mm
+            max_h = A4[1] - 40*mm
+            w, h = img.size
+            scale = min(max_w / float(w), max_h / float(h))
+
+            story_img = [
+                Paragraph("<b>ANEXO - EVIDENCIA / SOPORTE</b>", getSampleStyleSheet()["Heading2"]),
+                Spacer(1, 4*mm),
+                Image(
+                    io.BytesIO(evidencia_item["data"]),
+                    width=w * scale,
+                    height=h * scale
+                ),
+            ]
+            doc_img.build(story_img)
+            evidencia_pdf = img_pdf.getvalue()
+
+        if not evidencia_pdf:
+            return pdf_ficha
+
+        writer = PdfWriter()
+
+        ficha_reader = PdfReader(io.BytesIO(pdf_ficha))
+        for page in ficha_reader.pages:
+            writer.add_page(page)
+
+        evidencia_reader = PdfReader(io.BytesIO(evidencia_pdf))
+        for page in evidencia_reader.pages:
+            writer.add_page(page)
+
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+
+    except Exception:
+        # Si un archivo de soporte estuviera dañado, la ficha sigue descargándose
+        # y no se cae toda la aplicación.
+        return pdf_ficha
+
 
 def ficha_pdf_bytes(reg, config):
     output = io.BytesIO()
