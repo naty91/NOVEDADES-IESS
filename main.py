@@ -34,7 +34,7 @@ st.set_page_config(
 TZ_ECUADOR = ZoneInfo("America/Guayaquil")
 HOY = datetime.now(TZ_ECUADOR).date()
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 
 TIPOS_NOVEDAD = [
     "Aviso de entrada",
@@ -444,21 +444,68 @@ def excel_bytes(df, config):
 
 def pdf_bytes(df, config, titulo="Reporte de Novedades e Incidencias IESS"):
     output = io.BytesIO()
+
     doc = SimpleDocTemplate(
-        output, pagesize=landscape(A4),
-        rightMargin=8*mm, leftMargin=8*mm, topMargin=10*mm, bottomMargin=10*mm
+        output,
+        pagesize=landscape(A4),
+        rightMargin=7*mm,
+        leftMargin=7*mm,
+        topMargin=9*mm,
+        bottomMargin=10*mm
     )
+
     styles = getSampleStyleSheet()
-    title = ParagraphStyle(
-        "TitleCENASE", parent=styles["Title"], fontSize=14, leading=16,
-        alignment=TA_CENTER, textColor=colors.HexColor("#1F4E78")
+
+    title_style = ParagraphStyle(
+        "TitleCENASE",
+        parent=styles["Title"],
+        fontSize=13,
+        leading=15,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#1F4E78"),
+        spaceAfter=2
     )
-    small = ParagraphStyle("small", parent=styles["Normal"], fontSize=6.6, leading=8)
-    small_center = ParagraphStyle("smallcenter", parent=small, alignment=TA_CENTER)
+
+    meta_style = ParagraphStyle(
+        "meta",
+        parent=styles["Normal"],
+        fontSize=7.5,
+        leading=9
+    )
+
+    header_style = ParagraphStyle(
+        "header",
+        parent=styles["Normal"],
+        fontSize=6.2,
+        leading=7.2,
+        alignment=TA_CENTER
+    )
+
+    cell_style = ParagraphStyle(
+        "cell",
+        parent=styles["Normal"],
+        fontSize=5.9,
+        leading=7.0,
+        alignment=TA_LEFT
+    )
+
+    cell_center = ParagraphStyle(
+        "cellcenter",
+        parent=cell_style,
+        alignment=TA_CENTER
+    )
+
+    note_style = ParagraphStyle(
+        "note",
+        parent=styles["Normal"],
+        fontSize=7.2,
+        leading=9
+    )
+
     story = [
-        Paragraph(f"<b>{config.get('empresa','CENASE CÍA. LTDA.')}</b>", title),
-        Paragraph(titulo, title),
-        Spacer(1, 4*mm),
+        Paragraph(f"<b>{config.get('empresa','CENASE CÍA. LTDA.')}</b>", title_style),
+        Paragraph(titulo, title_style),
+        Spacer(1, 2*mm),
     ]
 
     meta = (
@@ -467,38 +514,85 @@ def pdf_bytes(df, config, titulo="Reporte de Novedades e Incidencias IESS"):
         f"<b>Cierre IESS:</b> {fmt_date(config.get('fecha_cierre_iess')) or 'No definido'} &nbsp;&nbsp;&nbsp; "
         f"<b>Reapertura:</b> {fmt_date(config.get('fecha_reapertura_iess')) or 'No definida'}"
     )
-    story.append(Paragraph(meta, styles["Normal"]))
-    story.append(Spacer(1, 4*mm))
+    story.append(Paragraph(meta, meta_style))
+    story.append(Spacer(1, 3*mm))
 
+    # Se compacta el reporte consolidado para evitar que se salga de la hoja.
     cols = [
-        "N.º", "Cédula", "Apellidos y nombres", "Centro de costo",
-        "Tipo novedad", "Fecha efectiva", "Fecha reportada a RR.HH.",
-        "Situación / incidencia", "Fecha registro IESS", "Estado", "ALERTA"
+        "N.º",
+        "Cédula",
+        "Apellidos y nombres",
+        "Centro de costo",
+        "Tipo novedad",
+        "Fecha efectiva",
+        "Fecha reportada a RR.HH.",
+        "Situación / incidencia",
+        "Fecha registro IESS",
+        "Estado",
+        "ALERTA",
     ]
-    data = [[Paragraph(f"<b>{c}</b>", small_center) for c in cols]]
+
+    # Anchos calculados para caber dentro de A4 horizontal.
+    widths = [
+        9*mm,   # N.º
+        20*mm,  # Cédula
+        34*mm,  # Nombres
+        26*mm,  # Centro costo
+        37*mm,  # Tipo novedad
+        18*mm,  # Fecha efectiva
+        23*mm,  # Fecha reportada
+        43*mm,  # Situación
+        20*mm,  # Fecha registro
+        18*mm,  # Estado
+        37*mm,  # Alerta
+    ]
+
+    data = [[Paragraph(f"<b>{c}</b>", header_style) for c in cols]]
+
     for _, row in df.iterrows():
         vals = []
         for c in cols:
             v = row.get(c, "")
             if c.startswith("Fecha"):
                 v = fmt_date(v)
-            vals.append(Paragraph(clean_text(v), small_center if c in ["N.º","Cédula","Fecha efectiva","Fecha reportada a RR.HH.","Fecha registro IESS","Estado"] else small))
+
+            if c == "ALERTA":
+                v = clean_text(v)
+                v = (v.replace("🟢", "VERDE -")
+                       .replace("🟡", "AMARILLO -")
+                       .replace("🔴", "ROJO -")
+                       .replace("🔵", "AZUL -")
+                       .replace("⚪", ""))
+
+            style = cell_center if c in {
+                "N.º", "Cédula", "Fecha efectiva",
+                "Fecha reportada a RR.HH.",
+                "Fecha registro IESS", "Estado"
+            } else cell_style
+
+            vals.append(Paragraph(clean_text(v), style))
         data.append(vals)
 
-    widths = [10*mm, 21*mm, 40*mm, 29*mm, 42*mm, 20*mm, 24*mm, 47*mm, 22*mm, 22*mm, 50*mm]
-    table = Table(data, colWidths=widths, repeatRows=1)
+    table = Table(
+        data,
+        colWidths=widths,
+        repeatRows=1,
+        hAlign="LEFT"
+    )
+
     table.setStyle(TableStyle([
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#D9EAF7")),
         ("TEXTCOLOR", (0,0), (-1,0), colors.black),
-        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#A6A6A6")),
+        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#9E9E9E")),
         ("VALIGN", (0,0), (-1,-1), "TOP"),
-        ("LEFTPADDING", (0,0), (-1,-1), 2),
-        ("RIGHTPADDING", (0,0), (-1,-1), 2),
+        ("LEFTPADDING", (0,0), (-1,-1), 1.5),
+        ("RIGHTPADDING", (0,0), (-1,-1), 1.5),
         ("TOPPADDING", (0,0), (-1,-1), 2),
         ("BOTTOMPADDING", (0,0), (-1,-1), 2),
     ]))
+
     story.append(table)
-    story.append(Spacer(1, 4*mm))
+    story.append(Spacer(1, 3*mm))
 
     counts = {
         "Total": len(df),
@@ -506,87 +600,32 @@ def pdf_bytes(df, config, titulo="Reporte de Novedades e Incidencias IESS"):
         "Incidencia IESS": int(df["ALERTA"].astype(str).str.contains("🟡").sum()) if len(df) else 0,
         "Revisar responsabilidad": int(df["ALERTA"].astype(str).str.contains("🔴").sum()) if len(df) else 0,
     }
+
     story.append(Paragraph(
-        " | ".join(f"<b>{k}:</b> {v}" for k,v in counts.items()),
-        styles["Normal"]
+        " | ".join(f"<b>{k}:</b> {v}" for k, v in counts.items()),
+        note_style
     ))
-    story.append(Spacer(1, 3*mm))
+
+    story.append(Spacer(1, 2*mm))
+
     story.append(Paragraph(
-        "<b>Nota de control:</b> la app conserva separadas la fecha efectiva de la novedad y la fecha en que pudo registrarse en IESS. "
-        "No se debe modificar la fecha laboral real para hacerla coincidir con la disponibilidad del portal.",
-        styles["Normal"]
+        "<b>Nota de control:</b> la bitácora conserva separadas la fecha efectiva de la novedad "
+        "y la fecha en que pudo registrarse en IESS. No se debe modificar la fecha laboral real "
+        "para hacerla coincidir con la disponibilidad del portal.",
+        note_style
+    ))
+
+    story.append(Spacer(1, 2*mm))
+
+    story.append(Paragraph(
+        "<b>Base IESS:</b> El Sistema de Historia Laboral se encuentra disponible desde el tercer día "
+        "hasta el penúltimo día de cada mes. El aviso de entrada tiene un plazo máximo de 15 días; "
+        "el aviso de salida, enfermedad y modificación de sueldo, 3 días desde el evento.",
+        note_style
     ))
 
     doc.build(story)
     return output.getvalue()
-
-
-def anexar_evidencia_a_pdf(pdf_ficha, evidencia_item):
-    """Anexa al final del PDF individual el soporte cargado (PDF/JPG/JPEG/PNG)."""
-    if not evidencia_item or not evidencia_item.get("data"):
-        return pdf_ficha
-
-    nombre = clean_text(evidencia_item.get("name")).lower()
-    evidencia_pdf = None
-
-    try:
-        if nombre.endswith(".pdf"):
-            evidencia_pdf = evidencia_item["data"]
-
-        elif nombre.endswith((".jpg", ".jpeg", ".png")):
-            img = PILImage.open(io.BytesIO(evidencia_item["data"]))
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-
-            img_pdf = io.BytesIO()
-            doc_img = SimpleDocTemplate(
-                img_pdf,
-                pagesize=A4,
-                rightMargin=12*mm,
-                leftMargin=12*mm,
-                topMargin=12*mm,
-                bottomMargin=12*mm
-            )
-
-            max_w = A4[0] - 24*mm
-            max_h = A4[1] - 40*mm
-            w, h = img.size
-            scale = min(max_w / float(w), max_h / float(h))
-
-            story_img = [
-                Paragraph("<b>ANEXO - EVIDENCIA / SOPORTE</b>", getSampleStyleSheet()["Heading2"]),
-                Spacer(1, 4*mm),
-                Image(
-                    io.BytesIO(evidencia_item["data"]),
-                    width=w * scale,
-                    height=h * scale
-                ),
-            ]
-            doc_img.build(story_img)
-            evidencia_pdf = img_pdf.getvalue()
-
-        if not evidencia_pdf:
-            return pdf_ficha
-
-        writer = PdfWriter()
-
-        ficha_reader = PdfReader(io.BytesIO(pdf_ficha))
-        for page in ficha_reader.pages:
-            writer.add_page(page)
-
-        evidencia_reader = PdfReader(io.BytesIO(evidencia_pdf))
-        for page in evidencia_reader.pages:
-            writer.add_page(page)
-
-        out = io.BytesIO()
-        writer.write(out)
-        return out.getvalue()
-
-    except Exception:
-        # Si un archivo de soporte estuviera dañado, la ficha sigue descargándose
-        # y no se cae toda la aplicación.
-        return pdf_ficha
-
 
 def ficha_pdf_bytes(reg, config):
     output = io.BytesIO()
